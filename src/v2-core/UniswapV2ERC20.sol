@@ -16,6 +16,9 @@ contract UniswapV2ERC20 is IUniswapV2ERC20 {
         0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9;
     mapping(address => uint) public nonces;
 
+    error UniswapV2__Expired();
+    error UniswapV2__Invalid_Signature();
+
     constructor() {
         uint chainId;
         assembly {
@@ -88,7 +91,7 @@ contract UniswapV2ERC20 is IUniswapV2ERC20 {
         bytes32 r,
         bytes32 s
     ) external {
-        require(deadline >= block.timestamp, "UniswapV2: EXPIRED");
+        require(deadline >= block.timestamp, UniswapV2__Expired());
         bytes32 digest = keccak256(
             abi.encodePacked(
                 "\x19\x01",
@@ -108,7 +111,7 @@ contract UniswapV2ERC20 is IUniswapV2ERC20 {
         address recoveredAddress = ecrecover(digest, v, r, s);
         require(
             recoveredAddress != address(0) && recoveredAddress == owner,
-            "UniswapV2: INVALID_SIGNATURE"
+            UniswapV2__Invalid_Signature()
         );
         _approve(owner, spender, value);
     }
