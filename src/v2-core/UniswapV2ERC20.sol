@@ -16,9 +16,6 @@ contract UniswapV2ERC20 is IUniswapV2ERC20 {
         0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9;
     mapping(address => uint) public nonces;
 
-    error UniswapV2__Expired();
-    error UniswapV2__Invalid_Signature();
-
     constructor() {
         uint chainId;
         assembly {
