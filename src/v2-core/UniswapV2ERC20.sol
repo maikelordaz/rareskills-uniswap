@@ -16,14 +16,11 @@ contract UniswapV2ERC20 is IUniswapV2ERC20 {
         0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9;
     mapping(address => uint) public nonces;
 
-    event Approval(address indexed owner, address indexed spender, uint value);
-    event Transfer(address indexed from, address indexed to, uint value);
-
     constructor() {
-        uint chainId = block.chainid;
-        // assembly {
-        //     chainId := chainid
-        // }
+        uint chainId;
+        assembly {
+            chainId := chainid()
+        }
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
                 keccak256(
@@ -75,7 +72,7 @@ contract UniswapV2ERC20 is IUniswapV2ERC20 {
         address to,
         uint value
     ) external returns (bool) {
-        if (allowance[from][msg.sender] != type(uint256).max) {
+        if (allowance[from][msg.sender] != type(uint).max) {
             allowance[from][msg.sender] = allowance[from][msg.sender] - value;
         }
         _transfer(from, to, value);
