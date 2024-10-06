@@ -150,7 +150,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
                 uint rootK = Math.sqrt(uint(_reserve0) * (_reserve1));
                 uint rootKLast = Math.sqrt(_kLast);
                 if (rootK > rootKLast) {
-                    uint numerator = totalSupply * (rootK - rootKLast);
+                    uint numerator = totalSupply() * (rootK - rootKLast);
                     uint denominator = (rootK * 5) + rootKLast;
                     uint liquidity = numerator / denominator;
                     if (liquidity > 0) _mint(feeTo, liquidity);
@@ -170,7 +170,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         uint amount1 = balance1 - _reserve1;
 
         bool feeOn = _mintFee(_reserve0, _reserve1);
-        uint _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
+        uint _totalSupply = totalSupply(); // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
             liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
             _mint(address(0), MINIMUM_LIQUIDITY); // permanently lock the first MINIMUM_LIQUIDITY tokens
@@ -197,10 +197,10 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         address _token1 = token1; // gas savings
         uint balance0 = IERC20(_token0).balanceOf(address(this));
         uint balance1 = IERC20(_token1).balanceOf(address(this));
-        uint liquidity = balanceOf[address(this)];
+        uint liquidity = balanceOf(address(this));
 
         bool feeOn = _mintFee(_reserve0, _reserve1);
-        uint _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
+        uint _totalSupply = totalSupply(); // gas savings, must be defined here since totalSupply can update in _mintFee
         amount0 = (liquidity * balance0) / _totalSupply; // using balances ensures pro-rata distribution
         amount1 = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
         require(
