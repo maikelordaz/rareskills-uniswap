@@ -34,7 +34,7 @@ contract UniswapV2Migrator is IUniswapV2Migrator {
         uint liquidityV1 = exchangeV1.balanceOf(msg.sender);
         require(
             exchangeV1.transferFrom(msg.sender, address(this), liquidityV1),
-            "TRANSFER_FROM_FAILED"
+            UniswapV2Migrator__TransferFromFailed()
         );
         (uint amountETHV1, uint amountTokenV1) = exchangeV1.removeLiquidity(
             liquidityV1,

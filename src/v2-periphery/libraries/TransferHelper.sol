@@ -4,6 +4,11 @@ pragma solidity 0.8.27;
 
 // helper methods for interacting with ERC20 tokens and sending ETH that do not consistently return true/false
 library TransferHelper {
+    error TransferHelper__safeApprove_ApproveFailed();
+    error TransferHelper__safeTransfer_TransferFailed();
+    error TransferHelper__transferFrom_TransferFromFailed();
+    error TransferHelper__safeTransferETH_EthTransferFailed();
+
     function safeApprove(address token, address to, uint256 value) internal {
         // bytes4(keccak256(bytes('approve(address,uint256)')));
         (bool success, bytes memory data) = token.call(
@@ -11,7 +16,7 @@ library TransferHelper {
         );
         require(
             success && (data.length == 0 || abi.decode(data, (bool))),
-            "TransferHelper::safeApprove: approve failed"
+            TransferHelper__safeApprove_ApproveFailed()
         );
     }
 
@@ -22,7 +27,7 @@ library TransferHelper {
         );
         require(
             success && (data.length == 0 || abi.decode(data, (bool))),
-            "TransferHelper::safeTransfer: transfer failed"
+            TransferHelper__safeTransfer_TransferFailed()
         );
     }
 
@@ -38,15 +43,12 @@ library TransferHelper {
         );
         require(
             success && (data.length == 0 || abi.decode(data, (bool))),
-            "TransferHelper::transferFrom: transferFrom failed"
+            TransferHelper__transferFrom_TransferFromFailed()
         );
     }
 
     function safeTransferETH(address to, uint256 value) internal {
         (bool success, ) = to.call{value: value}(new bytes(0));
-        require(
-            success,
-            "TransferHelper::safeTransferETH: ETH transfer failed"
-        );
+        require(success, TransferHelper__safeTransferETH_EthTransferFailed());
     }
 }

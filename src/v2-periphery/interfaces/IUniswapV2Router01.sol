@@ -1,6 +1,13 @@
 pragma solidity 0.8.27;
 
 interface IUniswapV2Router01 {
+    error UniswapV2Router__InsufficientOutputAmount();
+    error UniswapV2Router__ExcessiveInputAmount();
+    error UniswapV2Router__InvalidPath();
+    error UniswapV2Router__Expired();
+    error UniswapV2Router__InsufficientBAmount();
+    error UniswapV2Router__InsufficientAAmount();
+
     function factory() external view returns (address);
     function WETH() external view returns (address);
 

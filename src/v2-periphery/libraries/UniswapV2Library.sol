@@ -3,16 +3,24 @@ pragma solidity 0.8.27;
 import {IUniswapV2Pair} from "src/v2-core/interfaces/IUniswapV2Pair.sol";
 
 library UniswapV2Library {
+    error UniswapV2Library__IdenticalAddresses();
+    error UniswapV2Library__ZeroAddress();
+    error UniswapV2Library__InsufficientAmount();
+    error UniswapV2Library__InsufficientLiquidity();
+    error UniswapV2Library__InsufficientInputAmount();
+    error UniswapV2Library__InsufficientOutputAmount();
+    error UniswapV2Library__InvalidPath();
+
     // returns sorted token addresses, used to handle return values from pairs sorted in this order
     function sortTokens(
         address tokenA,
         address tokenB
     ) internal pure returns (address token0, address token1) {
-        require(tokenA != tokenB, "UniswapV2Library: IDENTICAL_ADDRESSES");
+        require(tokenA != tokenB, UniswapV2Library__IdenticalAddresses());
         (token0, token1) = tokenA < tokenB
             ? (tokenA, tokenB)
             : (tokenB, tokenA);
-        require(token0 != address(0), "UniswapV2Library: ZERO_ADDRESS");
+        require(token0 != address(0), UniswapV2Library__ZeroAddress());
     }
 
     // calculates the CREATE2 address for a pair without making any external calls
@@ -59,10 +67,10 @@ library UniswapV2Library {
         uint reserveA,
         uint reserveB
     ) internal pure returns (uint amountB) {
-        require(amountA > 0, "UniswapV2Library: INSUFFICIENT_AMOUNT");
+        require(amountA > 0, UniswapV2Library__InsufficientAmount());
         require(
             reserveA > 0 && reserveB > 0,
-            "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+            UniswapV2Library__InsufficientLiquidity()
         );
         amountB = (amountA * reserveB) / reserveA;
     }
@@ -73,10 +81,10 @@ library UniswapV2Library {
         uint reserveIn,
         uint reserveOut
     ) internal pure returns (uint amountOut) {
-        require(amountIn > 0, "UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT");
+        require(amountIn > 0, UniswapV2Library__InsufficientInputAmount());
         require(
             reserveIn > 0 && reserveOut > 0,
-            "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+            UniswapV2Library__InsufficientLiquidity()
         );
         uint amountInWithFee = amountIn * 997;
         uint numerator = amountInWithFee * reserveOut;
@@ -90,10 +98,10 @@ library UniswapV2Library {
         uint reserveIn,
         uint reserveOut
     ) internal pure returns (uint amountIn) {
-        require(amountOut > 0, "UniswapV2Library: INSUFFICIENT_OUTPUT_AMOUNT");
+        require(amountOut > 0, UniswapV2Library__InsufficientOutputAmount());
         require(
             reserveIn > 0 && reserveOut > 0,
-            "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+            UniswapV2Library__InsufficientLiquidity()
         );
         uint numerator = reserveIn * amountOut * 1000;
         uint denominator = reserveOut - amountOut * 997;
@@ -106,7 +114,7 @@ library UniswapV2Library {
         uint amountIn,
         address[] memory path
     ) internal view returns (uint[] memory amounts) {
-        require(path.length >= 2, "UniswapV2Library: INVALID_PATH");
+        require(path.length >= 2, UniswapV2Library__InvalidPath());
         amounts = new uint[](path.length);
         amounts[0] = amountIn;
         for (uint i; i < path.length - 1; i++) {
@@ -125,7 +133,7 @@ library UniswapV2Library {
         uint amountOut,
         address[] memory path
     ) internal view returns (uint[] memory amounts) {
-        require(path.length >= 2, "UniswapV2Library: INVALID_PATH");
+        require(path.length >= 2, UniswapV2Library__InvalidPath());
         amounts = new uint[](path.length);
         amounts[amounts.length - 1] = amountOut;
         for (uint i = path.length - 1; i > 0; i--) {

@@ -8,6 +8,11 @@ interface IUniswapV2Factory {
         uint
     );
 
+    error UniswapV2__IdenticalAddresses();
+    error UniswapV2__ZeroAddress();
+    error UniswapV2__PairExists();
+    error UniswapV2__Forbidden();
+
     function feeTo() external view returns (address);
     function feeToSetter() external view returns (address);
 

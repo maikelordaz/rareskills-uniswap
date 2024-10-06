@@ -27,8 +27,21 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     uint public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
 
     uint private unlocked = 1;
+
+    error UniswapV2__Locked();
+    error UniswapV2__Forbidden();
+    error UniswapV2__InsufficientLiquidityMinted();
+    error UniswapV2__InsufficientLiquidityBurned();
+    error UniswapV2__InsufficientOutputAmount();
+    error UniswapV2__InsufficientLiquidity();
+    error UniswapV2__InvalidTo();
+    error UniswapV2__InsufficientInputAmount();
+    error UniswapV2__K();
+    error UniswapV2__Overflow();
+    error UniswapV2__TrnasferFailed();
+
     modifier lock() {
-        require(unlocked == 1, "UniswapV2: LOCKED");
+        require(unlocked == 1, UniswapV2__Locked());
         unlocked = 0;
         _;
         unlocked = 1;
@@ -54,7 +67,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         );
         require(
             success && (data.length == 0 || abi.decode(data, (bool))),
-            "UniswapV2: TRANSFER_FAILED"
+            UniswapV2__TrnasferFailed()
         );
     }
 
@@ -81,7 +94,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
 
     // called once by the factory at time of deployment
     function initialize(address _token0, address _token1) external {
-        require(msg.sender == factory, "UniswapV2: FORBIDDEN"); // sufficient check
+        require(msg.sender == factory, UniswapV2__Forbidden()); // sufficient check
         token0 = _token0;
         token1 = _token1;
     }
@@ -95,7 +108,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     ) private {
         require(
             balance0 <= type(uint112).max && balance1 <= type(uint112).max,
-            "UniswapV2: OVERFLOW"
+            UniswapV2__Overflow()
         );
         uint32 blockTimestamp = uint32(block.timestamp % 2 ** 32);
         uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired
@@ -157,7 +170,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
                 (amount1 * _totalSupply) / _reserve1
             );
         }
-        require(liquidity > 0, "UniswapV2: INSUFFICIENT_LIQUIDITY_MINTED");
+        require(liquidity > 0, UniswapV2__InsufficientLiquidityMinted());
         _mint(to, liquidity);
 
         _update(balance0, balance1, _reserve0, _reserve1);
@@ -182,7 +195,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         amount1 = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
         require(
             amount0 > 0 && amount1 > 0,
-            "UniswapV2: INSUFFICIENT_LIQUIDITY_BURNED"
+            UniswapV2__InsufficientLiquidityBurned()
         );
         _burn(address(this), liquidity);
         _safeTransfer(_token0, to, amount0);
@@ -204,12 +217,12 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     ) external lock {
         require(
             amount0Out > 0 || amount1Out > 0,
-            "UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT"
+            UniswapV2__InsufficientOutputAmount()
         );
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves(); // gas savings
         require(
             amount0Out < _reserve0 && amount1Out < _reserve1,
-            "UniswapV2: INSUFFICIENT_LIQUIDITY"
+            UniswapV2__InsufficientLiquidity()
         );
 
         uint balance0;
@@ -218,7 +231,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
             // scope for _token{0,1}, avoids stack too deep errors
             address _token0 = token0;
             address _token1 = token1;
-            require(to != _token0 && to != _token1, "UniswapV2: INVALID_TO");
+            require(to != _token0 && to != _token1, UniswapV2__InvalidTo());
             if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens
             if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens
             if (data.length > 0)
@@ -239,7 +252,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
             : 0;
         require(
             amount0In > 0 || amount1In > 0,
-            "UniswapV2: INSUFFICIENT_INPUT_AMOUNT"
+            UniswapV2__InsufficientInputAmount()
         );
         {
             // scope for reserve{0,1}Adjusted, avoids stack too deep errors
@@ -248,7 +261,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
             require(
                 balance0Adjusted * balance1Adjusted >=
                     uint(_reserve0) * _reserve1 * (1000 ** 2),
-                "UniswapV2: K"
+                UniswapV2__K()
             );
         }
 
