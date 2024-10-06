@@ -6,8 +6,9 @@ import {UQ112x112} from "src/v2-core/libraries/UQ112x112.sol";
 import {IERC20} from "src/common/IERC20.sol";
 import {IUniswapV2Factory} from "src/v2-core/interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Callee} from "src/v2-core/interfaces/IUniswapV2Callee.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract UniswapV2Pair is UniswapV2ERC20 {
+contract UniswapV2Pair is UniswapV2ERC20, ReentrancyGuard {
     using UQ112x112 for uint224;
 
     uint public constant MINIMUM_LIQUIDITY = 10 ** 3;
@@ -26,9 +27,6 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     uint public price1CumulativeLast;
     uint public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
 
-    uint private unlocked = 1;
-
-    error UniswapV2__Locked();
     error UniswapV2__Forbidden();
     error UniswapV2__InsufficientLiquidityMinted();
     error UniswapV2__InsufficientLiquidityBurned();
@@ -39,13 +37,6 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     error UniswapV2__K();
     error UniswapV2__Overflow();
     error UniswapV2__TrnasferFailed();
-
-    modifier lock() {
-        require(unlocked == 1, UniswapV2__Locked());
-        unlocked = 0;
-        _;
-        unlocked = 1;
-    }
 
     function getReserves()
         public
@@ -164,7 +155,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     }
 
     // this low-level function should be called from a contract which performs important safety checks
-    function mint(address to) external lock returns (uint liquidity) {
+    function mint(address to) external nonReentrant returns (uint liquidity) {
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves(); // gas savings
         uint balance0 = IERC20(token0).balanceOf(address(this));
         uint balance1 = IERC20(token1).balanceOf(address(this));
@@ -195,7 +186,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     // this low-level function should be called from a contract which performs important safety checks
     function burn(
         address to
-    ) external lock returns (uint amount0, uint amount1) {
+    ) external nonReentrant returns (uint amount0, uint amount1) {
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves(); // gas savings
         address _token0 = token0; // gas savings
         address _token1 = token1; // gas savings
@@ -228,7 +219,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         uint amount1Out,
         address to,
         bytes calldata data
-    ) external lock {
+    ) external nonReentrant {
         require(
             amount0Out > 0 || amount1Out > 0,
             UniswapV2__InsufficientOutputAmount()
@@ -284,7 +275,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     }
 
     // force balances to match reserves
-    function skim(address to) external lock {
+    function skim(address to) external nonReentrant {
         address _token0 = token0; // gas savings
         address _token1 = token1; // gas savings
         _safeTransfer(
@@ -300,7 +291,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     }
 
     // force reserves to match balances
-    function sync() external lock {
+    function sync() external nonReentrant {
         _update(
             IERC20(token0).balanceOf(address(this)),
             IERC20(token1).balanceOf(address(this)),
