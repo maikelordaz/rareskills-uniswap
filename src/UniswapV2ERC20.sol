@@ -1,6 +1,6 @@
 pragma solidity 0.8.27;
 
-import {IUniswapV2ERC20} from "src/v2-core/interfaces/IUniswapV2ERC20.sol";
+import {IUniswapV2ERC20} from "src/interfaces/IUniswapV2ERC20.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 
 contract UniswapV2ERC20 is ERC20 {

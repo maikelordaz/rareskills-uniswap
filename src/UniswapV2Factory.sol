@@ -1,9 +1,9 @@
 pragma solidity 0.8.27;
 
-import {IUniswapV2Factory} from "src/v2-core/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Pair} from "src/v2-core/interfaces/IUniswapV2Pair.sol";
+import {IUniswapV2Factory} from "src/interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Pair} from "src/interfaces/IUniswapV2Pair.sol";
 
-import {UniswapV2Pair} from "src/v2-core/UniswapV2Pair.sol";
+import {UniswapV2Pair} from "src/UniswapV2Pair.sol";
 
 contract UniswapV2Factory is IUniswapV2Factory {
     address public feeTo;

@@ -1,11 +1,11 @@
 pragma solidity 0.8.27;
 
-import {UniswapV2ERC20} from "src/v2-core/UniswapV2ERC20.sol";
+import {UniswapV2ERC20} from "src/UniswapV2ERC20.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {UQ112x112} from "src/v2-core/libraries/UQ112x112.sol";
-import {IERC20} from "src/common/IERC20.sol";
-import {IUniswapV2Factory} from "src/v2-core/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Callee} from "src/v2-core/interfaces/IUniswapV2Callee.sol";
+import {UQ112x112} from "src/libraries/UQ112x112.sol";
+import {IERC20} from "src/interfaces/IERC20.sol";
+import {IUniswapV2Factory} from "src/interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Callee} from "src/interfaces/IUniswapV2Callee.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract UniswapV2Pair is UniswapV2ERC20, ReentrancyGuard {
