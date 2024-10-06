@@ -1,7 +1,7 @@
 pragma solidity 0.8.27;
 
 import {UniswapV2ERC20} from "src/v2-core/UniswapV2ERC20.sol";
-import {Math} from "src/v2-core/libraries/Math.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {UQ112x112} from "src/v2-core/libraries/UQ112x112.sol";
 import {IERC20} from "src/common/IERC20.sol";
 import {IUniswapV2Factory} from "src/v2-core/interfaces/IUniswapV2Factory.sol";
@@ -147,8 +147,10 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         uint _kLast = kLast; // gas savings
         if (feeOn) {
             if (_kLast != 0) {
-                uint rootK = Math.sqrt(uint(_reserve0) * (_reserve1));
-                uint rootKLast = Math.sqrt(_kLast);
+                uint rootK = FixedPointMathLib.sqrt(
+                    uint(_reserve0) * (_reserve1)
+                );
+                uint rootKLast = FixedPointMathLib.sqrt(_kLast);
                 if (rootK > rootKLast) {
                     uint numerator = totalSupply() * (rootK - rootKLast);
                     uint denominator = (rootK * 5) + rootKLast;
@@ -172,10 +174,12 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         bool feeOn = _mintFee(_reserve0, _reserve1);
         uint _totalSupply = totalSupply(); // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
-            liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
+            liquidity =
+                FixedPointMathLib.sqrt(amount0 * amount1) -
+                MINIMUM_LIQUIDITY;
             _mint(address(0), MINIMUM_LIQUIDITY); // permanently lock the first MINIMUM_LIQUIDITY tokens
         } else {
-            liquidity = Math.min(
+            liquidity = FixedPointMathLib.min(
                 (amount0 * _totalSupply) / _reserve0,
                 (amount1 * _totalSupply) / _reserve1
             );
