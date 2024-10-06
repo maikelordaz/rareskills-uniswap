@@ -3,7 +3,7 @@ pragma solidity 0.8.27;
 import {UniswapV2ERC20} from "src/v2-core/UniswapV2ERC20.sol";
 import {Math} from "src/v2-core/libraries/Math.sol";
 import {UQ112x112} from "src/v2-core/libraries/UQ112x112.sol";
-import {IERC20} from "src/v2-core/interfaces/IERC20.sol";
+import {IERC20} from "src/common/IERC20.sol";
 import {IUniswapV2Factory} from "src/v2-core/interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Callee} from "src/v2-core/interfaces/IUniswapV2Callee.sol";
 
