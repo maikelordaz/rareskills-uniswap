@@ -111,15 +111,25 @@ contract UniswapV2Pair is UniswapV2ERC20 {
             UniswapV2__Overflow()
         );
         uint32 blockTimestamp = uint32(block.timestamp % 2 ** 32);
-        uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired
+        uint32 timeElapsed;
+        // overflow is desired
+        unchecked {
+            timeElapsed = blockTimestamp - blockTimestampLast;
+        }
         if (timeElapsed > 0 && _reserve0 != 0 && _reserve1 != 0) {
-            // * never overflows, and + overflow is desired
-            price0CumulativeLast +=
-                uint(UQ112x112.encode(_reserve1).uqdiv(_reserve0)) *
-                timeElapsed;
-            price1CumulativeLast +=
-                uint(UQ112x112.encode(_reserve0).uqdiv(_reserve1)) *
-                timeElapsed;
+            // * never overflows
+            uint price0CumulativeLastPrev = uint(
+                UQ112x112.encode(_reserve1).uqdiv(_reserve0)
+            ) * timeElapsed;
+            uint price1CumulativeLastPrev = uint(
+                UQ112x112.encode(_reserve0).uqdiv(_reserve1)
+            ) * timeElapsed;
+
+            // and + overflow is desired
+            unchecked {
+                price0CumulativeLast += price0CumulativeLastPrev;
+                price1CumulativeLast += price1CumulativeLastPrev;
+            }
         }
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
