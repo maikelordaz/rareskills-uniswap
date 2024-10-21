@@ -1,9 +1,10 @@
-pragma solidity 0.8.27;
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.28;
 
-import {IUniswapV2Factory} from "src/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Pair} from "src/interfaces/IUniswapV2Pair.sol";
+import {IUniswapV2Factory} from "src/clone/interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Pair} from "src/clone/interfaces/IUniswapV2Pair.sol";
 
-import {UniswapV2Pair} from "src/UniswapV2Pair.sol";
+import {UniswapV2Pair} from "src/clone/UniswapV2Pair.sol";
 
 contract UniswapV2Factory is IUniswapV2Factory {
     address public feeTo;

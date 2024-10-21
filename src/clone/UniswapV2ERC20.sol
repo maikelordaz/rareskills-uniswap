@@ -1,6 +1,7 @@
-pragma solidity 0.8.27;
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.28;
 
-import {IUniswapV2ERC20} from "src/interfaces/IUniswapV2ERC20.sol";
+import {IUniswapV2ERC20} from "src/clone/interfaces/IUniswapV2ERC20.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 
 contract UniswapV2ERC20 is ERC20 {
