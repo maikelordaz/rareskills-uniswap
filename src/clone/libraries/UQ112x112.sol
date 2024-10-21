@@ -1,4 +1,5 @@
-pragma solidity 0.8.27;
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.28;
 
 // a library for handling binary fixed point numbers (https://en.wikipedia.org/wiki/Q_(number_format))
 
