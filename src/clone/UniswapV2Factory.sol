@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity 0.8.28;
 
-import {IUniswapV2Factory} from "src/clone/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Pair} from "src/clone/interfaces/IUniswapV2Pair.sol";
-
 import {UniswapV2Pair} from "src/clone/UniswapV2Pair.sol";
 
-contract UniswapV2Factory is IUniswapV2Factory {
+contract UniswapV2Factory {
     address public feeTo;
     address public feeToSetter;
 
     mapping(address => mapping(address => address)) public getPair;
     address[] public allPairs;
+
+    event PairCreated(
+        address indexed token0,
+        address indexed token1,
+        address pair,
+        uint
+    );
+
+    error UniswapV2__IdenticalAddresses();
+    error UniswapV2__ZeroAddress();
+    error UniswapV2__PairExists();
+    error UniswapV2__Forbidden();
 
     constructor(address _feeToSetter) {
         feeToSetter = _feeToSetter;
@@ -31,12 +40,10 @@ contract UniswapV2Factory is IUniswapV2Factory {
             : (tokenB, tokenA);
         require(token0 != address(0), UniswapV2__ZeroAddress());
         require(getPair[token0][token1] == address(0), UniswapV2__PairExists()); // single check is sufficient
-        bytes memory bytecode = type(UniswapV2Pair).creationCode;
+
         bytes32 salt = keccak256(abi.encodePacked(token0, token1));
-        assembly {
-            pair := create2(0, add(bytecode, 32), mload(bytecode), salt)
-        }
-        IUniswapV2Pair(pair).initialize(token0, token1);
+        pair = address(new UniswapV2Pair{salt: salt}(token0, token1));
+
         getPair[token0][token1] = pair;
         getPair[token1][token0] = pair; // populate mapping in the reverse direction
         allPairs.push(pair);
