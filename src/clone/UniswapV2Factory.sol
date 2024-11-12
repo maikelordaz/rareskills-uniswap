@@ -33,7 +33,7 @@ contract UniswapV2Factory {
     function createPair(
         address tokenA,
         address tokenB
-    ) external returns (address pair) {
+    ) external returns (address) {
         require(tokenA != tokenB, UniswapV2__IdenticalAddresses());
         (address token0, address token1) = tokenA < tokenB
             ? (tokenA, tokenB)
@@ -42,12 +42,14 @@ contract UniswapV2Factory {
         require(getPair[token0][token1] == address(0), UniswapV2__PairExists()); // single check is sufficient
 
         bytes32 salt = keccak256(abi.encodePacked(token0, token1));
-        pair = address(new UniswapV2Pair{salt: salt}(token0, token1));
+        UniswapV2Pair pair = new UniswapV2Pair{salt: salt}(token0, token1);
 
-        getPair[token0][token1] = pair;
-        getPair[token1][token0] = pair; // populate mapping in the reverse direction
-        allPairs.push(pair);
-        emit PairCreated(token0, token1, pair, allPairs.length);
+        getPair[token0][token1] = address(pair);
+        getPair[token1][token0] = address(pair); // populate mapping in the reverse direction
+        allPairs.push(address(pair));
+        emit PairCreated(token0, token1, address(pair), allPairs.length);
+
+        return address(pair);
     }
 
     function setFeeTo(address _feeTo) external {
