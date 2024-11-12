@@ -26,10 +26,6 @@ contract UniswapV2Factory {
         feeToSetter = _feeToSetter;
     }
 
-    function allPairsLength() external view returns (uint) {
-        return allPairs.length;
-    }
-
     function createPair(
         address tokenA,
         address tokenB
@@ -60,5 +56,9 @@ contract UniswapV2Factory {
     function setFeeToSetter(address _feeToSetter) external {
         require(msg.sender == feeToSetter, UniswapV2__Forbidden());
         feeToSetter = _feeToSetter;
+    }
+
+    function allPairsLength() external view returns (uint) {
+        return allPairs.length;
     }
 }
