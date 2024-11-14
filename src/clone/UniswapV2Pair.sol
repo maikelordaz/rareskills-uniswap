@@ -1,62 +1,354 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity 0.8.28;
 
-import {ERC20} from "solady/tokens/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC3156FlashBorrower, IERC3156FlashLender} from "@openzeppelin/contracts/interfaces/IERC3156FlashLender.sol";
+
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+import {UD60x18, ud} from "prb-math/UD60x18.sol";
 
-contract UniswapV2Pair is ERC20, ReentrancyGuard {
+import {ERC20} from "solady/tokens/ERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract UniswapV2Pair is ERC20, ReentrancyGuard, IERC3156FlashLender {
     using SafeERC20 for IERC20;
 
     uint public constant MINIMUM_LIQUIDITY = 1_000;
-    uint256 private constant DECIMAL_MULTIPLIER = 1_000;
-    uint256 private constant FEE_MULTIPLIER = 997;
-    bytes32 private constant FLASHSWAP_CALLBACK_SUCCESS =
-        keccak256("ERC3156FlashBorrower.onFlashLoan");
+    uint256 private constant FEE = 30;
 
     string public constant NAME = "Uniswap V2";
     string public constant SYMBOL = "UNI-V2";
+    bytes32 private constant FLASHSWAP_CALLBACK_SUCCESS =
+        keccak256("ERC3156FlashBorrower.onFlashLoan");
 
     IERC20 public immutable token0;
     IERC20 public immutable token1;
-
-    uint112 private _reserve0;
-    uint112 private _reserve1;
+    address public immutable factory;
 
     uint public price0CumulativeLast;
     uint public price1CumulativeLast;
 
+    uint112 private _reserve0;
+    uint112 private _reserve1;
     uint32 private _blockTimestampLast;
 
-    event Mint(address indexed sender, uint amount0, uint amount1, uint shares);
+    event Mint(address indexed sender, uint256 amount0, uint256 amount1);
     event Burn(
         address indexed sender,
-        uint amount0,
-        uint amount1,
+        uint256 amount0,
+        uint256 amount1,
         address indexed to
     );
+    event Sync(uint112 reserve0, uint112 reserve1);
     event Swap(
         address indexed sender,
-        bool indexed side,
-        uint amountIn,
-        uint amountOut,
+        uint256 amount0In,
+        uint256 amount1In,
+        uint256 amount0Out,
+        uint256 amount1Out,
         address indexed to
     );
 
-    error UniswapV2__InsufficientInputAmount();
-    error UniswapV2__Overflow();
-    error UniswapV2__InsufficientBalance();
-    error UniswapV2Pair__FlashSwapExceedsMaxRepayment();
-    error UniswapV2Pair__FlashSwapReceiverFailure();
-    error UniswapV2Pair__FlashSwapNotPaidBack();
-    error UniswapV2_Pair__SwapDoesNotMeetMinimumOut();
+    error UniswapV2Pair__ZeroAddress();
+    error UniswapV2Pair__UnsupportedToken();
+    error UniswapV2Pair__FlashLoanFailed();
+    error UniswapV2Pair__Overflow();
+    error UniswapV2Pair__MinimumLiquidity();
+    error UniswapV2Pair__InsufficientLiquidity();
+    error UniswapV2Pair__ZeroOutput();
+    error UniswapV2Pair__InsufficientReserve();
+    error UniswapV2Pair__ZeroInput();
+    error UniswapV2Pair__XYK();
 
     constructor(address _token0, address _token1) {
+        require(
+            _token0 != address(0) && _token1 != address(0),
+            UniswapV2Pair__ZeroAddress()
+        );
         token0 = IERC20(_token0);
         token1 = IERC20(_token1);
+        factory = msg.sender;
+    }
+
+    /**
+     * @notice IERC3156FlashLender-{flashLoan}
+     */
+    function flashLoan(
+        IERC3156FlashBorrower receiver,
+        address token,
+        uint256 amount,
+        bytes calldata data
+    ) public override returns (bool) {
+        IERC20 token0_ = token0; // copy into memory
+
+        require(
+            token == address(token0_) || token == address(token1),
+            UniswapV2Pair__UnsupportedToken()
+        );
+        // lend token. It would fail if amount > reserve
+        IERC20(token).safeTransfer(address(receiver), amount);
+
+        uint256 fee;
+        unchecked {
+            // cannot overflow
+            fee = (amount * FEE) / 10_000;
+        }
+        require(
+            receiver.onFlashLoan(msg.sender, token, amount, fee, data) ==
+                FLASHSWAP_CALLBACK_SUCCESS,
+            UniswapV2Pair__FlashLoanFailed()
+        );
+
+        // receive token amount + fee
+        IERC20(token).safeTransferFrom(
+            address(receiver),
+            address(this),
+            amount + fee
+        );
+
+        unchecked {
+            // update reserves: cannot overflow
+            if (token == address(token0_)) {
+                _reserve0 += uint112(fee);
+            } else {
+                _reserve1 += uint112(fee);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @dev function to call for supplying liquidity to the pool
+     * @param to address to receive new liquidity tokens
+     * @return liquidity amount of liquidity tokens to send to `to` address
+     * This function expects to receive required amount of tokens to make the mint possible.
+     */
+    function mint(address to) public nonReentrant returns (uint256 liquidity) {
+        // check for balance amounts and make sure they dont overflow uint112
+        (uint112 res0, uint112 res1) = (_reserve0, _reserve1); // copy into memory
+        uint256 balance0 = token0.balanceOf(address(this));
+        uint256 balance1 = token1.balanceOf(address(this));
+
+        uint256 liquiditySupply = totalSupply(); // copy into memory
+
+        require(
+            balance0 < type(uint112).max || balance1 < type(uint112).max,
+            UniswapV2Pair__Overflow()
+        );
+
+        unchecked {
+            // calculate user deposits, can't overflow
+            balance0 -= uint256(res0);
+            balance1 -= uint256(res1);
+        }
+
+        if (liquiditySupply == 0) {
+            // when adding liquidity for the first time: liquidity = sqrt(balance0 * balance1)
+            liquidity = FixedPointMathLib.sqrt(balance0 * balance1);
+            require(
+                liquidity > MINIMUM_LIQUIDITY,
+                UniswapV2Pair__MinimumLiquidity()
+            );
+            // mint to address(1) since minting to address(0) required overriding mint function
+            _mint(address(1), MINIMUM_LIQUIDITY);
+
+            unchecked {
+                liquidity -= MINIMUM_LIQUIDITY;
+            }
+        } else {
+            // in case deposits are not in correct proportions, compare ratios
+            UD60x18 ratio0 = ud(balance0).div(ud(res0));
+            UD60x18 ratio1 = ud(balance1).div(ud(res1));
+
+            // cannot overflow since liquidity is bound to uint256
+            if (ratio0 < ratio1) {
+                liquidity = (balance0 * liquiditySupply) / res0;
+                balance1 = (res1 * balance0) / res0;
+            } else {
+                liquidity = (balance1 * liquiditySupply) / res1;
+                balance0 = (res0 * balance1) / res1;
+            }
+        }
+
+        require(liquidity != 0, UniswapV2Pair__InsufficientLiquidity());
+
+        unchecked {
+            // update reserves. cant overflow
+            _reserve0 = res0 + uint112(balance0);
+            _reserve1 = res1 + uint112(balance1);
+        }
+        (res0, res1) = (_reserve0, _reserve1); // copy into memory
+
+        // update cumulative prices
+        _updateCumulativePrices(res0, res1);
+
+        _mint(to, liquidity);
+
+        emit Mint(to, balance0, balance1);
+        emit Sync(res0, res1);
+    }
+
+    /**
+     * @dev function to call when removing liquidity from the pool
+     * @param to address to receive the removed asset
+     * @return amount0 amount of token0 to send to `to` address
+     * @return amount1 amount of token1 to send to `to` address
+     * This function expects to receive required amount of tokens to make the burn possible.
+     */
+    function burn(
+        address to
+    ) external nonReentrant returns (uint256 amount0, uint256 amount1) {
+        (uint112 res0, uint112 res1) = (_reserve0, _reserve1); // copy into memory
+
+        uint256 burnAmount = balanceOf(address(this));
+
+        uint256 liquiditySupply = totalSupply(); // copy into memory
+
+        unchecked {
+            // cant overflow because uint112 * uint112 / uint256
+            amount0 = (res0 * burnAmount) / liquiditySupply;
+            amount1 = (res1 * burnAmount) / liquiditySupply;
+        }
+
+        unchecked {
+            // update reserves. cant overflow
+            _reserve0 = res0 - uint112(amount0);
+            _reserve1 = res1 - uint112(amount1);
+        }
+        (res0, res1) = (_reserve0, _reserve1); // copy into memory
+
+        // update cumulative prices
+        _updateCumulativePrices(res0, res1);
+
+        _burn(address(this), burnAmount);
+        token0.safeTransfer(to, amount0);
+        token1.safeTransfer(to, amount1);
+
+        emit Burn(to, amount0, amount1, to);
+        emit Sync(res0, res1);
+    }
+
+    /**
+     * @dev swap function to trade between tokens
+     * @param amount0Out expected amount of token0 to receive
+     * @param amount1Out expected amount of token1 to receive
+     * @param to address to receive the out tokens
+     * This function expects to receive required amount of tokens to make the trade possible.
+     */
+    function swap(
+        uint256 amount0Out,
+        uint256 amount1Out,
+        address to,
+        bytes calldata
+    ) external nonReentrant {
+        require(
+            amount0Out != 0 || amount1Out != 0,
+            UniswapV2Pair__ZeroOutput()
+        );
+        (uint112 res0, uint112 res1) = (_reserve0, _reserve1); // copy into memory
+        require(
+            amount0Out < res0 && amount1Out < res1,
+            UniswapV2Pair__InsufficientReserve()
+        );
+
+        // check for balances
+        uint256 balance0 = token0.balanceOf(address(this));
+        uint256 balance1 = token1.balanceOf(address(this));
+        require(
+            balance0 < type(uint112).max && balance1 < type(uint112).max,
+            UniswapV2Pair__Overflow()
+        );
+
+        uint256 amount0In;
+        uint256 amount1In;
+        {
+            unchecked {
+                if (balance0 > res0) {
+                    amount0In = balance0 - res0;
+                }
+                if (balance1 > res1) {
+                    amount1In = balance1 - res1;
+                }
+            }
+
+            require(
+                amount0In != 0 || amount1In != 0,
+                UniswapV2Pair__ZeroInput()
+            );
+            uint256 actualTransfer0Out;
+            uint256 actualTransfer1Out;
+            unchecked {
+                // deduct fee from transfer outs and then re-calculate. Wont overflow.
+                actualTransfer0Out = amount0Out - (amount0Out * FEE) / 10_000;
+                actualTransfer1Out = amount1Out - (amount1Out * FEE) / 10_000;
+
+                // update reserves
+                _reserve0 =
+                    (res0 + uint112(amount0In)) -
+                    uint112(actualTransfer0Out);
+                _reserve1 =
+                    (res1 + uint112(amount1In)) -
+                    uint112(actualTransfer1Out);
+
+                // check if xy=k holds true. Lte to allow amount0In >= actualAmount0In
+                require(
+                    uint256(_reserve0) * uint256(_reserve1) >=
+                        uint256(res0) * uint256(res1),
+                    UniswapV2Pair__XYK()
+                );
+            }
+
+            (res0, res1) = (_reserve0, _reserve1);
+            // make transfers
+            IERC20(token0).safeTransfer(to, actualTransfer0Out);
+            IERC20(token1).safeTransfer(to, actualTransfer1Out);
+        }
+
+        // update cumulative prices
+        _updateCumulativePrices(res0, res1);
+
+        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
+        emit Sync(res0, res1);
+    }
+
+    /**
+     * @dev function to withdraw amont of tokens exceeding the reserve values
+     */
+    function skim(address to) external {
+        uint256 diff0;
+        uint256 diff1;
+        unchecked {
+            // cant overflow
+            diff0 = token0.balanceOf(address(this)) - _reserve0;
+            diff1 = token1.balanceOf(address(this)) - _reserve1;
+        }
+
+        token0.safeTransfer(to, diff0);
+        token1.safeTransfer(to, diff1);
+    }
+
+    /**
+     * @dev function to sync reserves to the token balances of the pool
+     */
+    function sync() external {
+        uint256 balance0 = token0.balanceOf(address(this));
+        uint256 balance1 = token1.balanceOf(address(this));
+
+        require(
+            balance0 < type(uint112).max && balance1 < type(uint112).max,
+            UniswapV2Pair__Overflow()
+        );
+
+        // update reserves
+        _reserve0 = uint112(balance0);
+        _reserve1 = uint112(balance1);
+        (uint112 r0, uint112 r1) = (_reserve0, _reserve1); // copy into memory
+
+        // update cumulative prices
+        _updateCumulativePrices(r0, r1);
+
+        emit Sync(r0, r1);
     }
 
     function name() public pure override returns (string memory) {
@@ -67,358 +359,67 @@ contract UniswapV2Pair is ERC20, ReentrancyGuard {
         return SYMBOL;
     }
 
-    /// @notice Add liquidity to the pool by transferring tokens in
-    /// @dev emits a Mint event
-    /// @param amount0Approved Max amount of token0 the sender is willing to transfer out of their account
-    /// @param amount1Approved Max amount of token1 the sender is willing to transfer out of their account
-    /// @param amount0Min Min amount of token0 the sender is willing to transfer out of their account
-    /// @param amount1Min Min amount of token01the sender is willing to transfer out of their account
-    /// @param to Address to mint liquidity tokens to
-    function addLiquidity(
-        uint256 amount0Approved,
-        uint256 amount1Approved,
-        uint256 amount0Min,
-        uint256 amount1Min,
-        address to
-    ) external nonReentrant {
-        uint256 totalSupply_ = totalSupply();
-        IERC20 _token0 = token0;
-        IERC20 _token1 = token1;
-
-        if (totalSupply_ == 0) {
-            _token0.safeTransferFrom(
-                msg.sender,
-                address(this),
-                amount0Approved
-            );
-            _token1.safeTransferFrom(
-                msg.sender,
-                address(this),
-                amount1Approved
-            );
-            uint256 shares = FixedPointMathLib.sqrt(
-                amount0Approved * amount1Approved
-            ) - MINIMUM_LIQUIDITY;
-            _mint(to, shares);
-            emit Mint(msg.sender, amount0Approved, amount1Approved, shares);
-            _mint(address(0), MINIMUM_LIQUIDITY);
-            emit Mint(
-                address(0),
-                amount0Approved,
-                amount1Approved,
-                MINIMUM_LIQUIDITY
-            );
-            _updateReserves(
-                _token0.balanceOf(address(this)),
-                _token1.balanceOf(address(this)),
-                0,
-                0
-            );
-            return;
-        }
-
-        uint112 reserve0_ = _reserve0;
-        uint112 reserve1_ = _reserve1;
-        uint256 amount1ImpliedByApproval = (reserve1_ * amount0Approved) /
-            reserve0_;
-        uint256 amount0ToUse;
-        uint256 amount1ToUse;
-        if (amount1ImpliedByApproval > amount1Approved) {
-            amount0ToUse = (reserve0_ * amount1Approved) / reserve1_;
-
-            require(
-                amount0ToUse > amount0Min,
-                UniswapV2__InsufficientInputAmount()
-            );
-
-            amount1ToUse = amount1Approved;
-        } else {
-            amount1ToUse = amount1ImpliedByApproval;
-            require(
-                amount1ToUse > amount1Min,
-                UniswapV2__InsufficientInputAmount()
-            );
-            amount0ToUse = amount0Approved;
-        }
-
-        uint256 initialBalance0 = _token0.balanceOf(address(this));
-        _token0.safeTransferFrom(msg.sender, address(this), amount0ToUse);
-        uint256 actualAmount0;
-        unchecked {
-            // Pair balance can only increase
-            actualAmount0 = _token0.balanceOf(address(this)) - initialBalance0;
-        }
-
-        uint256 initialBalance1 = _token1.balanceOf(address(this));
-        _token1.safeTransferFrom(msg.sender, address(this), amount1ToUse);
-
-        uint256 actualAmount1;
-        unchecked {
-            // Pair balance can only increase
-            actualAmount1 = _token1.balanceOf(address(this)) - initialBalance1;
-        }
-
-        unchecked {
-            // Unchecked as the balance of this contract could not overflow, as otherwise the total supply of token0
-            // or token1 would have to overlfow
-            _updateReserves(
-                reserve0_ + actualAmount0,
-                reserve1_ + actualAmount1,
-                reserve0_,
-                reserve1_
-            );
-        }
-        uint256 liquidity0 = (actualAmount0 * totalSupply_) / reserve0_;
-        uint256 liquidity1 = (actualAmount1 * totalSupply_) / reserve1_;
-        if (liquidity0 < liquidity1) {
-            _mint(to, liquidity0);
-            emit Mint(msg.sender, actualAmount0, actualAmount1, liquidity0);
-        } else {
-            _mint(to, liquidity1);
-            emit Mint(msg.sender, actualAmount0, actualAmount1, liquidity1);
-        }
+    function getReserves() public view returns (uint112, uint112, uint32) {
+        return (_reserve0, _reserve1, _blockTimestampLast);
     }
 
-    /// @notice Remove liquidity from the Pair
-    /// @dev emits a Burn event
-    /// @dev reverts if the sender does not have sufficient balance
-    /// @param liquidity Number of liquidity tokens to withdraw
-    /// @param amount0Min Minimum amount of token0 the user is willing to receive
-    /// @param amount1Min Minimum amount of token1 the user is willing to receive
-    /// @param to Address to receive token0 and token1
-    function removeLiquidity(
-        uint256 liquidity,
-        uint256 amount0Min,
-        uint256 amount1Min,
-        address to
-    ) external nonReentrant {
-        uint256 balance = balanceOf(msg.sender);
-        require(balance > liquidity, UniswapV2__InsufficientBalance());
-
-        uint256 totalSupply_ = totalSupply();
-        IERC20 _token0 = token0;
-        uint256 amount0 = (liquidity * _token0.balanceOf(address(this))) /
-            totalSupply_;
-        require(amount0 > amount0Min, UniswapV2__InsufficientInputAmount());
-
-        IERC20 _token1 = token1;
-        uint256 amount1 = (liquidity * _token1.balanceOf(address(this))) /
-            totalSupply_;
-        require(amount1 > amount1Min, UniswapV2__InsufficientInputAmount());
-
-        _burn(msg.sender, liquidity);
-        _token0.safeTransfer(to, amount0);
-        _token1.safeTransfer(to, amount1);
-
-        uint112 reserve0_ = _reserve0;
-        uint112 reserve1_ = _reserve1;
-
-        unchecked {
-            // Unchecked is safe as the user can't withdraw more than our reserves
-            _updateReserves(
-                reserve0_ - amount0,
-                reserve1_ - amount1,
-                reserve0_,
-                reserve1_
-            );
-        }
-
-        emit Burn(msg.sender, amount0, amount1, to);
+    function kLast() public view returns (uint256) {
+        return uint256(_reserve0) * uint256(_reserve1);
     }
 
-    /// @notice Flash swap one token for the other token: `to` receives the requested amount of tokens first, after
-    /// which their callback function will be invoked which must repay the required quantity of the other token.
-    /// @dev `to` must implement `IERC3156FlashBorrower`
-    /// @dev emits a Swap event
-    /// @dev reverts if `to` does not pay back at least the required value of tokens
-    /// @param side If true, then the swap is from token1 to token0, otherwise the swap is from token0 to token1
-    /// @param amount Amount of tokens to transfer out of the Pair
-    /// @param maxRepayment Maximum number of tokens the caller is willing to use to payback the Pair
-    /// @param to Address to receive the tokens
-    function flashSwap(
-        bool side,
-        uint256 amount,
-        uint256 maxRepayment,
-        address to
-    ) external nonReentrant {
-        IERC20 tokenIn;
-        IERC20 tokenOut;
-        uint112 reserveIn;
-        uint112 reserveOut;
-        if (side) {
-            tokenIn = token1;
-            tokenOut = token0;
-            reserveIn = _reserve1;
-            reserveOut = _reserve0;
-        } else {
-            tokenIn = token0;
-            tokenOut = token1;
-            reserveIn = _reserve0;
-            reserveOut = _reserve1;
-        }
-
-        uint256 initialToBalanceOut = tokenOut.balanceOf(to);
-        tokenOut.safeTransfer(to, amount);
-        uint256 actualAmount = initialToBalanceOut - tokenOut.balanceOf(to);
-        uint256 initialBalanceIn = tokenIn.balanceOf(address(this));
-        uint256 owedIn = (DECIMAL_MULTIPLIER * amount * reserveIn) /
-            (FEE_MULTIPLIER * (reserveOut - amount));
+    /**
+     * @notice IERC3156FlashLender-{maxFlashLoan}
+     * @param token address of token to borrow
+     * @return amount maximum that user can borrow
+     */
+    function maxFlashLoan(
+        address token
+    ) public view override returns (uint256 amount) {
         require(
-            owedIn < maxRepayment,
-            UniswapV2Pair__FlashSwapExceedsMaxRepayment()
+            token == address(token0) || token == address(token1),
+            UniswapV2Pair__UnsupportedToken()
         );
-
-        bytes32 callbackResult = IERC3156FlashBorrower(to).onFlashLoan(
-            msg.sender,
-            address(tokenOut),
-            actualAmount,
-            0,
-            abi.encodePacked(tokenIn, owedIn) // Tell the flash borrower what token they owe back and how much
-        );
-        require(
-            callbackResult == FLASHSWAP_CALLBACK_SUCCESS,
-            UniswapV2Pair__FlashSwapReceiverFailure()
-        );
-
-        uint256 finalBalanceIn = tokenIn.balanceOf(address(this));
-        unchecked {
-            // Pair balance dont decrease
-            require(
-                finalBalanceIn - initialBalanceIn > owedIn,
-                UniswapV2Pair__FlashSwapNotPaidBack()
-            );
-        }
-
-        if (side) {
-            _updateReserves(
-                tokenOut.balanceOf(address(this)),
-                finalBalanceIn,
-                reserveOut,
-                reserveIn
-            );
-        } else {
-            _updateReserves(
-                finalBalanceIn,
-                tokenOut.balanceOf(address(this)),
-                reserveIn,
-                reserveOut
-            );
-        }
-
-        emit Swap(msg.sender, side, owedIn, amount, to);
+        amount = token == address(token0) ? _reserve0 : _reserve1;
     }
 
-    /// @notice Swap one token for the other token
-    /// @dev emits a Swap event
-    /// @dev reverts if sender has not already approved at least `amountIn`
-    /// @param side If true, then the swap is from token1 to token0, otherwise the swap is from token0 to token1
-    /// @param amountIn Amount of tokens to transfer out of the sender's account
-    /// @param amountOutMin Minimum number of tokens the user is willing to receive in return
-    /// @param to Address to receive the tokens
-    function swapExactTokenForToken(
-        bool side,
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address to
-    ) external nonReentrant {
-        IERC20 inToken;
-        uint112 inReserve;
-        IERC20 outToken;
-        uint112 outReserve;
-
-        if (side) {
-            inToken = token1;
-            inReserve = _reserve1;
-            outToken = token0;
-            outReserve = _reserve0;
-        } else {
-            inToken = token0;
-            inReserve = _reserve0;
-            outToken = token1;
-            outReserve = _reserve1;
-        }
-
-        uint256 initialBalanceIn = inToken.balanceOf(address(this));
-        uint256 initialBalanceOut = outToken.balanceOf(address(this));
-        inToken.safeTransferFrom(msg.sender, address(this), amountIn);
-        uint256 finalBalanceIn = inToken.balanceOf(address(this));
-        uint256 actualAmountIn;
-        unchecked {
-            actualAmountIn = finalBalanceIn - initialBalanceIn;
-        }
-        uint256 actualAmountInSubFee = actualAmountIn * FEE_MULTIPLIER;
-
-        uint256 amountOut = (actualAmountInSubFee * outReserve) /
-            (inReserve * DECIMAL_MULTIPLIER + actualAmountInSubFee);
+    /**
+     * @param token address of token to borrow
+     * @param amount amount of the token to borrow
+     * @return fee for flashloan
+     */
+    function flashFee(
+        address token,
+        uint256 amount
+    ) public view override returns (uint256 fee) {
         require(
-            amountOut > amountOutMin,
-            UniswapV2_Pair__SwapDoesNotMeetMinimumOut()
+            token == address(token0) || token == address(token1),
+            UniswapV2Pair__UnsupportedToken()
         );
-
-        outToken.safeTransfer(to, amountOut);
-        uint256 finalBalanceOut = outToken.balanceOf(address(this));
-
-        unchecked {
-            if (side) {
-                _updateReserves(
-                    outReserve - amountOut,
-                    inReserve + actualAmountIn,
-                    outReserve,
-                    inReserve
-                );
-            } else {
-                _updateReserves(
-                    inReserve + actualAmountIn,
-                    outReserve - amountOut,
-                    inReserve,
-                    outReserve
-                );
-            }
-        }
-
-        emit Swap(msg.sender, side, amountIn, amountOut, to);
+        fee = (amount * FEE) / 10_000;
     }
 
-    function _updateReserves(
-        uint256 newReserve0,
-        uint256 newReserve1,
-        uint112 currentReserve0,
-        uint112 currentReserve1
-    ) private {
-        require(
-            newReserve0 < type(uint112).max && newReserve1 < type(uint112).max,
-            UniswapV2__Overflow()
-        );
-
-        uint32 currentBlockTimestamp = uint32(block.timestamp % 2 ** 32);
+    /**
+     * @dev private function to update cumulative prices for TWAP purposes
+     */
+    function _updateCumulativePrices(uint112 _res0, uint112 _res1) private {
+        uint32 timeElapsed;
         unchecked {
-            uint32 timeSinceLastUpdate = currentBlockTimestamp -
+            timeElapsed =
+                uint32(block.timestamp % 2 ** 32) -
                 _blockTimestampLast;
-            if (
-                timeSinceLastUpdate > 0 &&
-                currentReserve0 != 0 &&
-                currentReserve1 != 0
-            ) {
-                price0CumulativeLast +=
-                    uint256(
-                        _asFixedPoint112(currentReserve1) /
-                            uint224(currentReserve0)
-                    ) *
-                    timeSinceLastUpdate;
-                price1CumulativeLast +=
-                    uint256(
-                        _asFixedPoint112(currentReserve0) /
-                            uint224(currentReserve1)
-                    ) *
-                    timeSinceLastUpdate;
-            }
+            // its okay for _blockTimestampLast to overflow
+            _blockTimestampLast = uint32(block.timestamp % 2 ** 32);
         }
-        _blockTimestampLast = currentBlockTimestamp;
-        _reserve0 = uint112(newReserve0);
-        _reserve1 = uint112(newReserve1);
-    }
+        uint256 price0CumulativeLastPrev = UD60x18.unwrap(
+            ud(_res1).div(ud(_res0))
+        ) * timeElapsed;
+        uint256 price1CumulativeLastPrev = UD60x18.unwrap(
+            ud(_res0).div(ud(_res1))
+        ) * timeElapsed;
 
-    function _asFixedPoint112(uint112 x) private pure returns (uint224) {
-        return uint224(x) << 112;
+        unchecked {
+            price0CumulativeLast += price0CumulativeLastPrev;
+            price1CumulativeLast += price1CumulativeLastPrev;
+        }
     }
 }
